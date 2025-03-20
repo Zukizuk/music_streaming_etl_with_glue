@@ -1,0 +1,21 @@
+{
+  "name": "manifest.json",
+  "version": "1.0",
+  "directory": "data/streams/",
+  "purpose": "Store incoming streaming data.",
+  "schema": {
+    "extension": ".csv",
+    "max_rows": 11346,
+    "name_pattern": "streams[0-9]+.csv",
+    "fields_required": true,
+    "fields": {
+      "user_id": { "type": "int", "required": true },
+      "track_id": { "type": "string", "required": true },
+      "listen_time": { "type": "timestamp", "required": true }
+    },
+    "validation": {
+      "on_error": "quarantine",
+      "quarantine_path": "data/quarantine"
+    }
+  }
+}
