@@ -71,131 +71,104 @@ def prepare_files_for_job_run(ti):
         print(f"Failed preparing files: {e}")
 
 # Utity functions
-def validate_df(df, manifest_data):
-    """
-    Validates a DataFrame against schema defined in manifest.json
+def validate_row_count(df, schema):
+    row_count_valid = len(df) <= schema["max_rows"]
+    return {
+        "validation": "Row count",
+        "expected": f"<= {schema['max_rows']}",
+        "actual": len(df),
+        "passed": row_count_valid,
+        "status": "✅" if row_count_valid else "❌"
+    }
+
+def validate_columns(df, fields):
+    expected_columns = set(fields.keys())
+    df_columns = set(df.columns)
+    missing_columns = expected_columns - df_columns
+    extra_columns = df_columns - expected_columns
     
-    Args:
-        df: Pandas DataFrame to validate
-        manifest_path: Path to manifest.json file (optional)
-        manifest_data: Dict containing manifest data (optional)
-        
-    Returns:
-        tuple: (bool, pd.DataFrame) - (validation_passed, validation_results)
-    """
-    try:
-        schema = manifest_data["schema"]
-        fields = schema["fields"]
-        
-        # Initialize validation results
-        validation_results = []
-        
-        # Check max rows
-        row_count_valid = len(df) <= schema["max_rows"]
-        validation_results.append({
-            "validation": "Row count",
-            "expected": f"<= {schema['max_rows']}",
-            "actual": len(df),
-            "passed": row_count_valid,
-            "status": "✅" if row_count_valid else "❌"
-        })
-        
-        # Check expected columns
-        expected_columns = set(fields.keys())
-        df_columns = set(df.columns)
-        missing_columns = expected_columns - df_columns
-        extra_columns = df_columns - expected_columns
-        
-        columns_valid = len(missing_columns) == 0
-        validation_results.append({
+    column_validations = [
+        {
             "validation": "Required columns",
             "expected": list(expected_columns),
             "actual": list(df_columns),
-            "passed": columns_valid,
-            "status": "✅" if columns_valid else "❌"
+            "passed": len(missing_columns) == 0,
+            "status": "✅" if len(missing_columns) == 0 else "❌"
+        }
+    ]
+    
+    if extra_columns:
+        column_validations.append({
+            "validation": "Extra columns",
+            "expected": "None",
+            "actual": list(extra_columns),
+            "passed": False,
+            "status": "❌"
         })
+    
+    return column_validations
+
+def validate_column_types(df, fields):
+    type_validations = []
+    for col_name, col_spec in fields.items():
+        if col_name not in df.columns:
+            continue
         
-        if extra_columns:
-            validation_results.append({
-                "validation": "Extra columns",
-                "expected": "None",
-                "actual": list(extra_columns),
+        validation_result = {
+            "validation": f"Column '{col_name}' - Type '{col_spec['type']}'",
+            "expected": col_spec["type"],
+            "actual": "Valid",
+            "passed": True,
+            "status": "✅"
+        }
+        
+        try:
+            if col_spec["type"] == "int":
+                non_int = df[~df[col_name].isna()][col_name].apply(lambda x: not str(x).isdigit())
+                if non_int.sum() > 0:
+                    validation_result.update({
+                        "actual": f"{non_int.sum()} non-integer values",
+                        "passed": False,
+                        "status": "❌"
+                    })
+            elif col_spec["type"] == "string" and df[col_name].dtype != object:
+                validation_result.update({
+                    "actual": f"Found {df[col_name].dtype} instead of string",
+                    "passed": False,
+                    "status": "❌"
+                })
+            elif col_spec["type"] == "timestamp":
+                pd.to_datetime(df[col_name])
+        except Exception as e:
+            validation_result.update({
+                "actual": f"Error: {str(e)}",
                 "passed": False,
                 "status": "❌"
             })
         
-        # Type validations
-        for col_name, col_spec in fields.items():
-            if col_name not in df.columns:
-                continue
-                
-            # Check for nulls if required
-            if col_spec.get("required", False):
-                null_count = df[col_name].isna().sum()
-                nulls_valid = null_count == 0
-                validation_results.append({
-                    "validation": f"Column '{col_name}' - No nulls",
-                    "expected": "0 nulls",
-                    "actual": f"{null_count} nulls",
-                    "passed": nulls_valid,
-                    "status": "✅" if nulls_valid else "❌"
-                })
-            
-            # Type validations
-            type_valid = True
-            error_msg = ""
-            
-            if col_spec["type"] == "int":
-                try:
-                    # Check if all values can be converted to int
-                    non_int = df[~df[col_name].isna()][col_name].apply(
-                        lambda x: not str(x).isdigit() if not pd.isna(x) else False
-                    )
-                    type_valid = non_int.sum() == 0
-                    error_msg = f"{non_int.sum()} non-integer values" if not type_valid else ""
-                except Exception as e:
-                    type_valid = False
-                    error_msg = f"Error: {str(e)}"
-                    
-            elif col_spec["type"] == "string":
-                type_valid = df[col_name].dtype == object
-                error_msg = f"Found {df[col_name].dtype} instead of string" if not type_valid else ""
-                
-            elif col_spec["type"] == "timestamp":
-                try:
-                    # Try to convert to datetime
-                    pd.to_datetime(df[col_name])
-                    type_valid = True
-                except Exception as e:
-                    type_valid = False
-                    error_msg = f"Error: {str(e)}"
-            
-            validation_results.append({
-                "validation": f"Column '{col_name}' - Type '{col_spec['type']}'",
-                "expected": col_spec["type"],
-                "actual": error_msg if not type_valid else "Valid",
-                "passed": type_valid,
-                "status": "✅" if type_valid else "❌"
-            })
+        type_validations.append(validation_result)
+    
+    return type_validations
+
+def validate_df(df, manifest_data):
+    try:
+        schema = manifest_data["schema"]
+        fields = schema["fields"]
+        validation_results = []
         
-        # Create results DataFrame
+        validation_results.append(validate_row_count(df, schema))
+        validation_results.extend(validate_columns(df, fields))
+        validation_results.extend(validate_column_types(df, fields))
+        
         results_df = pd.DataFrame(validation_results)
-        
-        # Overall validation status
         all_passed = results_df["passed"].all()
-        
         return all_passed, results_df
-        
+    
     except Exception as e:
         logger.error(f"Validation failed: {e}")
-        print(f"Validation failed: {e}")
-        return False, pd.DataFrame([{
-            "validation": "Overall validation",
-            "expected": "Valid DataFrame",
-            "actual": f"Error: {str(e)}",
-            "passed": False,
-            "status": "❌"
-        }])
+        return False, pd.DataFrame([
+            {"validation": "Overall validation", "expected": "Valid DataFrame", "actual": f"Error: {str(e)}", "passed": False, "status": "❌"}
+        ])
 
 def process_files_to_dataframes(files):
     logger.info(f"Processing {len(files)} files to dataframes")

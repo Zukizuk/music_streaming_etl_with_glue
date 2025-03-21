@@ -10,7 +10,7 @@ from project_2_utils import validate_streaming_files, prepare_files_for_job_run,
 
 default_args = {
     'owner': 'Marzuk',
-    'email': ['marzuk.entsie@amalitech.com'],
+    'email': ['sannimarzuk@gmail.com'],
     'email_on_failure': False,
     'email_on_retry': False,
     # 'retries': 1,
@@ -21,6 +21,12 @@ now = datetime.now()
 project_vars = Variable.get("project-two-vars", deserialize_json=True)
 bucket = project_vars.get("bucket")
 source_key = project_vars.get("source_path")
+script_location = project_vars.get("script_location")
+job_name = project_vars.get("job_name")
+target_dynamodb_table = project_vars.get("target_dynamodb_table")
+s3_songs_path = project_vars.get("s3_songs_path")
+s3_users_path = project_vars.get("s3_users_path")
+s3_streams_path = project_vars.get("s3_streams_path")
 
 with DAG(
     'music_streaming_etl2',
@@ -29,7 +35,7 @@ with DAG(
     schedule_interval=None,
     start_date=datetime(2025, 3, 18),
     catchup=False,
-    tags=['music', 'streaming', 'aws', 'dynamodb'],
+    tags=['music', 'streaming','glue', 'aws', 'dynamodb'],
 ) as dag:
 
     start = S3KeySensor(
@@ -57,14 +63,14 @@ with DAG(
 
     run_job = GlueJobOperator(
         task_id='run_glue_job_task',
-        job_name='streaming_transformation',
-        script_location="s3://aws-glue-assets-288761743948-eu-west-1/scripts/streaming_transformation.py",
+        job_name=job_name,
+        script_location=script_location,
         script_args={
-        '--JOB_NAME': 'streaming_transformation',
-        '--s3_songs_path': "s3://etl-airflow-glue-bucket-zuki/data/songs/songs.csv",
-        '--s3_users_path': "s3://etl-airflow-glue-bucket-zuki/data/users/users.csv",
-        '--s3_streams_path': "s3://etl-airflow-glue-bucket-zuki/data/temp/merged_stream.csv",
-        '--target_dynamodb_table': "daily-genre-kpis"
+        '--JOB_NAME': job_name,
+        '--s3_songs_path': s3_songs_path,
+        '--s3_users_path': s3_users_path,
+        '--s3_streams_path': s3_streams_path,
+        '--target_dynamodb_table': target_dynamodb_table
         },
         aws_conn_id='aws_default',
         dag=dag

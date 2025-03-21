@@ -54,7 +54,13 @@ This project implements an **ETL (Extract, Transform, Load) pipeline** for a mus
    ```json
    {
      "bucket": "your-s3-bucket-name",
-     "source_path": "data/streams/"
+     "source_path": "data/streams/",
+     "script_location": "",
+     "job_name": "",
+     "target_dynamodb_table": "",
+     "s3_songs_path": "",
+     "s3_users_path": "",
+     "s3_streams_path": ""
    }
    ```
 3. **Ensure `manifest.json` is stored in S3**:
